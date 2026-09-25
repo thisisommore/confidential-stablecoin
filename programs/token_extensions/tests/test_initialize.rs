@@ -37,8 +37,13 @@ fn test_initialize() {
 
     let instruction = Instruction::new_with_bytes(
         program_id,
-        &token_extensions::instruction::CreateMintDeclaritive { decimals: decimals }.data(),
-        token_extensions::accounts::CreateMintDeclaritive {
+        &token_extensions::instruction::CreateMintWithFee {
+            decimals: decimals,
+            basis_points: 10,
+            maximum_fee: 100,
+        }
+        .data(),
+        token_extensions::accounts::CreateMintWithFee {
             payer: payer.pubkey(),
             system_program: system_program::ID,
             mint: mint.pubkey(),
@@ -56,7 +61,7 @@ fn test_initialize() {
     match res {
         Ok(e) => assert!(true),
         Err(e) => {
-            println!("{:?}", e);
+            println!("{}", e.meta.logs.join("\n"));
             assert!(false);
         }
     };

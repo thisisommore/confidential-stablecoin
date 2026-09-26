@@ -14,13 +14,13 @@ declare_id!("3eUPqdUMRg26RDBjk4xUNegu8L9kRvQUSccgJsgLqTWB");
 pub mod token_extensions {
     use super::*;
 
-    pub fn create_mint_with_fee(
-        ctx: Context<CreateMintWithFee>,
+    pub fn create_mint(
+        ctx: Context<CreateMint>,
         decimals: u8,
         basis_points: u16,
         maximum_fee: u64,
     ) -> Result<()> {
-        ctx.accounts.create_mint_with_fee(
+        ctx.accounts.create_mint(
             decimals,
             basis_points,
             maximum_fee,

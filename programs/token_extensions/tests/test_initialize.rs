@@ -37,13 +37,13 @@ fn test_initialize() {
 
     let instruction = Instruction::new_with_bytes(
         program_id,
-        &token_extensions::instruction::CreateMintWithFee {
+        &token_extensions::instruction::CreateMint {
             decimals: decimals,
             basis_points: 10,
             maximum_fee: 100,
         }
         .data(),
-        token_extensions::accounts::CreateMintWithFee {
+        token_extensions::accounts::CreateMint {
             payer: payer.pubkey(),
             system_program: system_program::ID,
             mint: mint.pubkey(),

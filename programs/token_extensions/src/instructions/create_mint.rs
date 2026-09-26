@@ -48,7 +48,7 @@ pub struct UnFreeze<'info> {
 }
 
 impl<'info> CreateMint<'info> {
-    pub fn create_mint_with_fee(
+    pub fn create_mint(
         &self,
         decimals: u8,
         basis_points: u16,

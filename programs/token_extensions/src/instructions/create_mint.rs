@@ -25,7 +25,7 @@ const SUPPORTED_EXTENSIONS: &[ExtensionType] = &[
 use anchor_spl::token_2022::spl_token_2022::state::{AccountState, Mint as MintState};
 
 #[derive(Accounts)]
-pub struct CreateMintWithFee<'info> {
+pub struct CreateMint<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
@@ -58,7 +58,7 @@ pub struct UnFreeze<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-impl<'info> CreateMintWithFee<'info> {
+impl<'info> CreateMint<'info> {
     pub fn create_mint_with_fee(
         &self,
         decimals: u8,

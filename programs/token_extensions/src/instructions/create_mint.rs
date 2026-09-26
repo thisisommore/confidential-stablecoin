@@ -37,17 +37,6 @@ pub struct CreateMint<'info> {
 }
 
 #[derive(Accounts)]
-pub struct AssertSupportedMints<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-
-    /// CHECK: no need haha
-    #[account(owner = token_program.key())]
-    pub mint: UncheckedAccount<'info>,
-    pub token_program: Interface<'info, TokenInterface>,
-}
-
-#[derive(Accounts)]
 pub struct UnFreeze<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -174,44 +163,6 @@ impl<'info> CreateMint<'info> {
     }
 }
 
-impl<'info> AssertSupportedMints<'info> {
-    pub fn assert_supported_mint(&self) -> Result<()> {
-        let account_info = self.mint.to_account_info();
-        let data = account_info.try_borrow_data()?;
-        let state = StateWithExtensions::<MintState>::unpack(&data)?;
-        let decimals = state.base.decimals;
-
-        for extension in state.get_extension_types()? {
-            require!(
-                SUPPORTED_EXTENSIONS.contains(&extension),
-                MintError::UnsupportedExtension
-            );
-        }
-
-        let fee = match state.get_extension::<TransferFeeConfig>() {
-            Ok(config) => config.calculate_epoch_fee(Clock::get()?.epoch, 10).unwrap(),
-            Err(_) => 0,
-        };
-
-        transfer_checked_with_fee(
-            CpiContext::new(
-                self.token_program.key(),
-                TransferCheckedWithFee {
-                    authority: self.payer.to_account_info(),
-                    destination: self.payer.to_account_info(),
-                    mint: self.mint.to_account_info(),
-                    source: self.payer.to_account_info(),
-                    token_program_id: self.token_program.to_account_info(),
-                },
-            ),
-            10,
-            9,
-            fee,
-        )?;
-
-        Ok(())
-    }
-}
 impl<'info> UnFreeze<'info> {
     pub fn unfreeze(&self) -> Result<()> {
         let cpi_accounts = ThawAccount {

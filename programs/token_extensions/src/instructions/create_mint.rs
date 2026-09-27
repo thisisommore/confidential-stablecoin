@@ -47,130 +47,128 @@ pub struct UnFreeze<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-impl<'info> CreateMint<'info> {
-    pub fn create_mint(
-        &self,
-        decimals: u8,
-        basis_points: u16,
-        maximum_fee: u64,
-        wp: [u8; 32],
-    ) -> Result<()> {
-        let extensions = [
-            ExtensionType::TransferFeeConfig,
-            ExtensionType::MetadataPointer,
-            ExtensionType::DefaultAccountState,
-            ExtensionType::MintCloseAuthority,
-            ExtensionType::ConfidentialTransferMint,
-            ExtensionType::ConfidentialTransferFeeConfig,
-            ExtensionType::PermanentDelegate,
-        ];
+pub fn create_mint_ix(
+    ctx: Context<CreateMint>,
+    decimals: u8,
+    basis_points: u16,
+    maximum_fee: u64,
+    wp: [u8; 32],
+) -> Result<()> {
+    let extensions = [
+        ExtensionType::TransferFeeConfig,
+        ExtensionType::MetadataPointer,
+        ExtensionType::DefaultAccountState,
+        ExtensionType::MintCloseAuthority,
+        ExtensionType::ConfidentialTransferMint,
+        ExtensionType::ConfidentialTransferFeeConfig,
+        ExtensionType::PermanentDelegate,
+    ];
 
-        let space = ExtensionType::try_calculate_account_len::<MintState>(&extensions)?;
-        let lamports = Rent::get()?.minimum_balance(space);
-        anchor_lang::system_program::create_account(
-            CpiContext::new(
-                self.system_program.key(),
-                anchor_lang::system_program::CreateAccount {
-                    from: self.payer.to_account_info(),
-                    to: self.mint.to_account_info(),
-                },
-            ),
-            lamports,
-            space as u64,
-            &self.token_program.key(),
-        )?;
+    let space = ExtensionType::try_calculate_account_len::<MintState>(&extensions)?;
+    let lamports = Rent::get()?.minimum_balance(space);
+    anchor_lang::system_program::create_account(
+        CpiContext::new(
+            ctx.accounts.system_program.key(),
+            anchor_lang::system_program::CreateAccount {
+                from: ctx.accounts.payer.to_account_info(),
+                to: ctx.accounts.mint.to_account_info(),
+            },
+        ),
+        lamports,
+        space as u64,
+        &ctx.accounts.token_program.key(),
+    )?;
 
-        transfer_fee_initialize(
-            CpiContext::new(
-                self.token_program.key(),
-                TransferFeeInitialize {
-                    token_program_id: self.token_program.to_account_info(),
-                    mint: self.mint.to_account_info(),
-                },
-            ),
-            Some(&self.payer.key()),
-            Some(&self.payer.key()),
-            basis_points,
-            maximum_fee,
-        )?;
+    transfer_fee_initialize(
+        CpiContext::new(
+            ctx.accounts.token_program.key(),
+            TransferFeeInitialize {
+                token_program_id: ctx.accounts.token_program.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+            },
+        ),
+        Some(&ctx.accounts.payer.key()),
+        Some(&ctx.accounts.payer.key()),
+        basis_points,
+        maximum_fee,
+    )?;
 
-        metadata_pointer_initialize(
-            CpiContext::new(
-                self.token_program.key(),
-                MetadataPointerInitialize {
-                    token_program_id: self.token_program.to_account_info(),
-                    mint: self.mint.to_account_info(),
-                },
-            ),
-            Some(self.payer.key()),
-            Some(self.mint.key()),
-        )?;
+    metadata_pointer_initialize(
+        CpiContext::new(
+            ctx.accounts.token_program.key(),
+            MetadataPointerInitialize {
+                token_program_id: ctx.accounts.token_program.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+            },
+        ),
+        Some(ctx.accounts.payer.key()),
+        Some(ctx.accounts.mint.key()),
+    )?;
 
-        default_account_state_initialize(
-            CpiContext::new(
-                self.token_program.key(),
-                DefaultAccountStateInitialize {
-                    token_program_id: self.token_program.to_account_info(),
-                    mint: self.mint.to_account_info(),
-                },
-            ),
-            &AccountState::Frozen,
-        )?;
+    default_account_state_initialize(
+        CpiContext::new(
+            ctx.accounts.token_program.key(),
+            DefaultAccountStateInitialize {
+                token_program_id: ctx.accounts.token_program.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+            },
+        ),
+        &AccountState::Frozen,
+    )?;
 
-        mint_close_authority_initialize(
-            CpiContext::new(
-                self.token_program.key(),
-                MintCloseAuthorityInitialize {
-                    token_program_id: self.token_program.to_account_info(),
-                    mint: self.mint.to_account_info(),
-                },
-            ),
-            Some(&self.payer.key()),
-        )?;
-        let mint_info = self.mint.to_account_info();
-        let program_info = self.token_program.to_account_info();
-        let infos = [mint_info.clone(), program_info.clone()];
+    mint_close_authority_initialize(
+        CpiContext::new(
+            ctx.accounts.token_program.key(),
+            MintCloseAuthorityInitialize {
+                token_program_id: ctx.accounts.token_program.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+            },
+        ),
+        Some(&ctx.accounts.payer.key()),
+    )?;
+    let mint_info = ctx.accounts.mint.to_account_info();
+    let infos = [mint_info.clone()];
 
-        invoke(
-            &initialize_confidential_transfer_fee_config(
-                &self.token_program.key(),
-                &self.mint.key(),
-                Some(self.mint.key()),
-                &wp.into(),
-            )?,
-            &infos,
-        )?;
-        invoke(
-            &initialize_permanent_delegate(
-                &self.token_program.key(),
-                &self.mint.key(),
-                &self.mint.key(),
-            )?,
-            &infos,
-        )?;
+    invoke(
+        &initialize_confidential_transfer_fee_config(
+            &ctx.accounts.token_program.key(),
+            &ctx.accounts.mint.key(),
+            Some(ctx.accounts.payer.key()),
+            &wp.into(),
+        )?,
+        &infos,
+    )?;
+    invoke(
+        &initialize_permanent_delegate(
+            &ctx.accounts.token_program.key(),
+            &ctx.accounts.mint.key(),
+            &ctx.accounts.payer.key(),
+        )?,
+        &infos,
+    )?;
 
-        initialize_mint2(
-            CpiContext::new(
-                self.token_program.key(),
-                InitializeMint2 {
-                    mint: self.mint.to_account_info(),
-                },
-            ),
-            decimals,
-            &self.payer.key(),
-            None,
-        )
-    }
+    initialize_mint2(
+        CpiContext::new(
+            ctx.accounts.token_program.key(),
+            InitializeMint2 {
+                mint: ctx.accounts.mint.to_account_info(),
+            },
+        ),
+        decimals,
+        &ctx.accounts.payer.key(),
+        Some(&ctx.accounts.payer.key()),
+    )
 }
 
-impl<'info> UnFreeze<'info> {
-    pub fn unfreeze(&self) -> Result<()> {
-        let cpi_accounts = ThawAccount {
-            account: self.mint.to_account_info(),
-            authority: self.mint.to_account_info(),
-            mint: self.mint.to_account_info(),
-        };
-        thaw_account(CpiContext::new(self.token_program.key(), cpi_accounts))?;
-        Ok(())
-    }
+pub fn unfreeze_ix(ctx: Context<UnFreeze>) -> Result<()> {
+    let cpi_accounts = ThawAccount {
+        account: ctx.accounts.mint.to_account_info(),
+        authority: ctx.accounts.payer.to_account_info(),
+        mint: ctx.accounts.mint.to_account_info(),
+    };
+    thaw_account(CpiContext::new(
+        ctx.accounts.token_program.key(),
+        cpi_accounts,
+    ))?;
+    Ok(())
 }

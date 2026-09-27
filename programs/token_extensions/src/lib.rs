@@ -20,7 +20,8 @@ pub mod token_extensions {
         basis_points: u16,
         maximum_fee: u64,
     ) -> Result<()> {
-        ctx.accounts.create_mint(
+        create_mint_ix(
+            ctx,
             decimals,
             basis_points,
             maximum_fee,

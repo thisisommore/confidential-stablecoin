@@ -8,7 +8,7 @@ use anchor_lang::prelude::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("3eUPqdUMRg26RDBjk4xUNegu8L9kRvQUSccgJsgLqTWB");
+declare_id!("GJTVX6e1Xu6JtE4BPvfN7b6ED8ZLcZ4u7eb58sRMQ1VJ");
 
 #[program]
 pub mod token_extensions {

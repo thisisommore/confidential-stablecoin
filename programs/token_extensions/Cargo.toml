@@ -25,14 +25,17 @@ anchor-lang = "1.1.2"
 anchor-spl = "1.1.2"
 
 [dev-dependencies]
-litesvm = "0.10.0"
+solana-address = "2.6"
+litesvm = "0.16.0"
 solana-message = "3.0.1"
-solana-transaction = "3.0.2"
+solana-transaction = "4.1.4"
 solana-signer = "3.0.0"
 solana-keypair = "3.0.1"
-litesvm-token = "0.10.0"
-
-
-
+litesvm-token = "0.16.0"
+solana-system-interface = "=2.0.0"
+spl-token-confidential-transfer-proof-extraction = "=0.6.1"
+solana-zk-sdk = "=7.0.1"
+spl-token-2022-interface = "=3.1.2"
+solana-zk-elgamal-proof-interface = "=0.1"
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

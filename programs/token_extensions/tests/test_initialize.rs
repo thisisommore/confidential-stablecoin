@@ -1,5 +1,8 @@
 use {
-    anchor_lang::prelude::{Clock, Pubkey},
+    anchor_lang::{
+        prelude::{Clock, Pubkey},
+        Key,
+    },
     anchor_spl::token_2022::{
         spl_token_2022::{
             extension::{
@@ -68,37 +71,34 @@ struct TestHelper {
     payer: Keypair,
 }
 
-struct User<'info> {
-    key: Keypair,
-    elgamal: ElGamalKeypair,
-    helper: &'info mut TestHelper,
+struct User {
+    pub key: Keypair,
+    pub elgamal: ElGamalKeypair,
+    pub aes: AeKey,
+    pub ata: Keypair,
+}
+
+impl User {
+    fn pubkey(&self) -> Pubkey {
+        self.key.pubkey()
+    }
+}
+
+impl User {
+    fn new() -> User {
+        User {
+            key: Keypair::new(),
+            elgamal: ElGamalKeypair::new_rand(),
+            aes: AeKey::new_rand(),
+            ata: Keypair::new(),
+        }
+    }
 }
 
 struct Mint<'info> {
     key: Keypair,
     helper: &'info mut TestHelper,
     decimals: u8,
-}
-
-impl<'info> User<'info> {
-    fn ata(self, mint: Pubkey) -> Pubkey {
-        let space = ExtensionType::try_calculate_account_len::<TokenAccount>(&[
-            ExtensionType::TransferFeeAmount,
-            ExtensionType::ConfidentialTransferAccount,
-            ExtensionType::ConfidentialTransferFeeAmount,
-        ])
-        .unwrap();
-        self.helper.new_account(space, &TOKEN_PROGRAM_ID);
-        let ata = Keypair::new();
-        self.helper.send(
-            &[
-                initialize_account3(&TOKEN_PROGRAM_ID, &ata.pubkey(), &mint, &self.key.pubkey())
-                    .unwrap(),
-            ],
-            &[],
-        );
-        ata.pubkey()
-    }
 }
 
 impl Debug for TestHelper {
@@ -110,45 +110,39 @@ impl Debug for TestHelper {
 }
 
 impl TestHelper {
-    fn ata(&mut self, user: &Pubkey) -> Pubkey {
+    fn ata(&mut self, user: &User) {
         let space = ExtensionType::try_calculate_account_len::<TokenAccount>(&[
             ExtensionType::TransferFeeAmount,
             ExtensionType::ConfidentialTransferAccount,
             ExtensionType::ConfidentialTransferFeeAmount,
         ])
         .unwrap();
-        let ata = self.new_account(space, &TOKEN_PROGRAM_ID);
+        self.new_account_from_key(space, &TOKEN_PROGRAM_ID, &user.ata);
         self.send(
-            &[
-                initialize_account3(&TOKEN_PROGRAM_ID, &ata.pubkey(), &self.mint.pubkey(), user)
-                    .unwrap(),
-            ],
+            &[initialize_account3(
+                &TOKEN_PROGRAM_ID,
+                &user.ata.pubkey(),
+                &self.mint.pubkey(),
+                &user.pubkey(),
+            )
+            .unwrap()],
             &[],
         );
-
-        ata.pubkey()
     }
-    fn thaw(&mut self, user_ata: &Pubkey, admin: &Keypair) {
+    fn thaw(&mut self, user: &User, admin: &User) {
         self.send(
             &[thaw_account(
                 &TOKEN_PROGRAM_ID,
-                user_ata,
+                &user.ata.pubkey(),
                 &self.mint.pubkey(),
                 &admin.pubkey(),
                 &[&admin.pubkey()],
             )
             .unwrap()],
-            &[&admin],
+            &[&admin.key],
         )
     }
-    fn transfer(
-        &mut self,
-        user_src_ata: &Pubkey,
-        user_to_ata: &Pubkey,
-        user: &Keypair,
-        admin: &Pubkey,
-        transfer_amount: u64,
-    ) {
+    fn transfer(&mut self, user_src: &User, user_to: &User, admin: &User, transfer_amount: u64) {
         let raw = self.svm.get_account(&self.mint.pubkey()).unwrap();
         let state = AStateWithExtensions::<MintState>::unpack(&raw.data).unwrap();
         let epoch = self.svm.get_sysvar::<Clock>().epoch;
@@ -159,36 +153,31 @@ impl TestHelper {
 
         let transfer_ix = transfer_checked_with_fee(
             &TOKEN_PROGRAM_ID,
-            user_src_ata,
+            &user_src.ata.pubkey(),
             &self.mint.pubkey(),
-            user_to_ata,
-            &user.pubkey(),
-            &[&user.pubkey()],
+            &user_to.ata.pubkey(),
+            &user_src.pubkey(),
+            &[&user_src.pubkey()],
             transfer_amount,
             9,
             fee,
         )
         .unwrap();
-        self.send(&[transfer_ix], &[&user]);
+        self.send(&[transfer_ix], &[&user_src.key]);
     }
-    fn enable_ct(
-        &mut self,
-        user_ata: &Pubkey,
-        user: &Keypair,
-        admin: &Keypair,
-        el: &ElGamalKeypair,
-        aes: &AeKey,
-    ) {
-        let proof_data = build_pubkey_validity_proof_data(&el).unwrap();
+    fn enable_ct(&mut self, user: &User, admin: &User) {
+        let el = &user.elgamal;
+        let aes = &user.aes;
+        let proof_data = build_pubkey_validity_proof_data(el).unwrap();
         let space = std::mem::size_of::<ProofContextState<PubkeyValidityProofContext>>();
         let proof_rent = self.svm.minimum_balance_for_rent_exemption(space);
-        let admin_key = admin.insecure_clone();
+        let admin_key = admin.key.insecure_clone();
         let ZK_PROOF_PROGRAM_ID: Address =
             Address::from_str("ZkE1Gama1Proof11111111111111111111111111111").unwrap();
 
         let proof_acc = self.new_account(space, &ZK_PROOF_PROGRAM_ID);
 
-        let pk_bytes: [u8; 32] = el.pubkey().into();
+        let pk_bytes: [u8; 32] = user.elgamal.pubkey().into();
         println!("ELGAMAL PK HEAD: {:?}", &pk_bytes[..8]);
         let verify_ix = ProofInstruction::VerifyPubkeyValidity.encode_verify_proof(
             Some(ContextStateInfo {
@@ -201,32 +190,34 @@ impl TestHelper {
         self.send(
             &configure_account(
                 &TOKEN_PROGRAM_ID,
-                user_ata,
+                &user.ata.pubkey(),
                 &self.mint.pubkey(),
-                &AeKey::encrypt(&aes, 0).into(),
+                &AeKey::encrypt(aes, 0).into(),
                 65536,
                 &user.pubkey(),
                 &[],
                 ProofLocation::ContextStateAccount(&proof_acc.pubkey()),
             )
             .unwrap(),
-            &[&user],
+            &[&user.key],
         );
 
         self.send(
             &[approve_account(
                 &TOKEN_PROGRAM_ID,
-                user_ata,
+                &user.ata.pubkey(),
                 &self.mint.pubkey(),
                 &admin_key.pubkey(),
                 &[&admin_key.pubkey()],
             )
             .unwrap()],
-            &[&admin],
+            &[&admin.key],
         );
     }
-    fn apply(&mut self, user_ata: &Pubkey, user: &Keypair, el: &ElGamalKeypair, aes: &AeKey) {
-        let raw = self.svm.get_account(user_ata).unwrap();
+    fn apply(&mut self, user: &User) {
+        let el = &user.elgamal;
+        let aes = &user.aes;
+        let raw = self.svm.get_account(&user.ata.pubkey()).unwrap();
         let state = StateWithExtensions::<TokenAccountState>::unpack(&raw.data).unwrap();
         let ct = state
             .get_extension::<ConfidentialTransferAccount>()
@@ -245,17 +236,18 @@ impl TestHelper {
         self.send(
             &[apply_pending_balance(
                 &TOKEN_PROGRAM_ID,
-                user_ata,
+                &user.ata.pubkey(),
                 counter,
                 &new_decryptable.into(),
                 &user.pubkey(),
                 &[],
             )
             .unwrap()],
-            &[&user],
+            &[&user.key],
         );
     }
-    fn deposit(&mut self, user_ata: &Pubkey, user: &Keypair, amount: u64) {
+    fn deposit(&mut self, user: &User, amount: u64) {
+        let user_ata = &user.ata.pubkey();
         self.send(
             &[deposit(
                 &TOKEN_PROGRAM_ID,
@@ -267,11 +259,12 @@ impl TestHelper {
                 &[],
             )
             .unwrap()],
-            &[&user],
+            &[&user.key],
         );
     }
 
-    fn mint_tokens(&mut self, user_ata: &Pubkey, admin: &Keypair, mint_amount: u64) {
+    fn mint_tokens(&mut self, user: &User, admin: &User, mint_amount: u64) {
+        let user_ata = &user.ata.pubkey();
         self.send(
             &[mint_to(
                 &TOKEN_PROGRAM_ID,
@@ -282,7 +275,7 @@ impl TestHelper {
                 mint_amount,
             )
             .unwrap()],
-            &[&admin],
+            &[&admin.key],
         );
     }
 
@@ -319,7 +312,23 @@ impl TestHelper {
         a
     }
 
-    fn setup(admin: &Keypair, withdraw_elgamal_pubkey: &ElGamalPubkey) -> TestHelper {
+    fn new_account_from_key(&mut self, space: usize, owner: &Pubkey, keypair: &Keypair) {
+        let rent = self.svm.minimum_balance_for_rent_exemption(space);
+
+        self.send(
+            &[create_account(
+                &self.payer.pubkey(),
+                &keypair.pubkey(),
+                rent,
+                space as u64,
+                owner,
+            )],
+            &[keypair],
+        );
+    }
+
+    fn setup(admin: &User) -> TestHelper {
+        let withdraw_elgamal_pubkey = admin.elgamal.pubkey();
         let mut th = TestHelper {
             svm: LiteSVM::new(),
             mint: Keypair::new(),
@@ -332,7 +341,7 @@ impl TestHelper {
         let mint = th.new_account(space, &TOKEN_PROGRAM_ID);
         th.mint = mint;
         let MINT: &Pubkey = &th.mint.pubkey();
-        let ADMIN: Pubkey = admin.pubkey();
+        let ADMIN: Pubkey = admin.key.pubkey();
         let some_admin_ref = Some(&ADMIN);
         let some_admin = Some(ADMIN);
         let withdraw_elgamal_pubkey_raw: [u8; 32] = withdraw_elgamal_pubkey.into();
@@ -375,18 +384,18 @@ impl TestHelper {
 
     fn transfer_ct(
         &mut self,
-        user_src_ata: &Pubkey,
-        user_to_ata: &Pubkey,
-        user: &Keypair,
-        admin: &Pubkey,
+        user_src: &User,
+        user_dst: &User,
+        admin: &User,
         transfer_amount: u64,
-        sender_el: &ElGamalKeypair,
-        dest_el: &ElGamalPubkey,
-        withdraw_elgamal_pubkey: &ElGamalPubkey,
-        aes: &AeKey,
         amount: u64,
-        sender: &Keypair,
     ) {
+        let user_src_ata = &user_src.ata.pubkey();
+        let user_to_ata = &user_dst.ata.pubkey();
+        let aes = &user_src.aes;
+        let sender_el = &user_src.elgamal;
+        let dest_el = &user_dst.elgamal;
+
         let ata_raw = self.svm.get_account(user_src_ata).unwrap();
         let state = StateWithExtensions::<TokenAccountState>::unpack(&ata_raw.data).unwrap();
         let confidential_transfer_account = state
@@ -416,9 +425,9 @@ impl TestHelper {
             amount,
             sender_el,
             aes,
-            dest_el,
+            dest_el.pubkey(),
             None,
-            withdraw_elgamal_pubkey,
+            admin.elgamal.pubkey(),
             100,
             10_000,
         )
@@ -438,7 +447,7 @@ impl TestHelper {
             &proofs
                 .transfer_amount_ciphertext_validity_proof_data_with_ciphertext
                 .ciphertext_hi,
-            &sender.pubkey(),
+            &user_src.pubkey(),
             &[],
             ProofLocation::InstructionOffset(
                 NonZeroI8::new(1).unwrap(),
@@ -462,7 +471,7 @@ impl TestHelper {
         )
         .unwrap();
 
-        self.send(&ixs, &[sender]);
+        self.send(&ixs, &[&user_src.key]);
     }
 }
 const SUPPORTED_EXTENSIONS: [ExtensionType; 7] = [
@@ -476,43 +485,28 @@ const SUPPORTED_EXTENSIONS: [ExtensionType; 7] = [
 ];
 #[test]
 fn test_initialize() {
-    let admin = Keypair::new();
-    let admin_el = ElGamalKeypair::new_rand();
+    let admin = User::new();
 
-    let mut mint = TestHelper::setup(&admin, admin_el.pubkey());
-    mint.svm.airdrop(&admin.pubkey(), 1_000_000_000).unwrap();
+    let mut mint = TestHelper::setup(&admin);
+    mint.svm
+        .airdrop(&admin.key.pubkey(), 1_000_000_000)
+        .unwrap();
 
-    let user_a = Keypair::new();
-    let user_a_ata = mint.ata(&user_a.pubkey());
+    let user_a = User::new();
+    let user_b = User::new();
 
-    let user_b = Keypair::new();
-    let user_b_ata = mint.ata(&user_b.pubkey());
-    mint.thaw(&user_a_ata, &admin);
-    mint.mint_tokens(&user_a_ata, &admin, 10_00_000);
-    mint.thaw(&user_b_ata, &admin);
+    mint.ata(&user_a);
+    mint.ata(&user_b);
+    mint.thaw(&user_a, &admin);
+    mint.mint_tokens(&user_a, &admin, 10_00_000);
+    mint.thaw(&user_b, &admin);
 
-    mint.transfer(&user_a_ata, &user_b_ata, &user_a, &admin.pubkey(), 1000);
-    let user_a_el = ElGamalKeypair::new_rand();
-    let user_a_aes = AeKey::new_rand();
-    mint.enable_ct(&user_a_ata, &user_a, &admin, &user_a_el, &user_a_aes);
-    mint.deposit(&user_a_ata, &user_a, 10_000);
-    mint.apply(&user_a_ata, &user_a, &user_a_el, &user_a_aes);
+    mint.transfer(&user_a, &user_b, &admin, 1000);
+    mint.enable_ct(&user_a, &admin);
+    mint.deposit(&user_a, 10_000);
+    mint.apply(&user_a);
 
-    let user_b_el = ElGamalKeypair::new_rand();
-    let user_b_aes = AeKey::new_rand();
-    mint.enable_ct(&user_b_ata, &user_b, &admin, &user_b_el, &user_b_aes);
+    mint.enable_ct(&user_b, &admin);
 
-    mint.transfer_ct(
-        &user_a_ata,
-        &user_b_ata,
-        &user_a,
-        &admin.pubkey(),
-        10,
-        &user_a_el,
-        user_b_el.pubkey(),
-        &admin_el.pubkey(),
-        &user_a_aes,
-        10,
-        &user_a,
-    );
+    mint.transfer_ct(&user_a, &user_b, &admin, 10, 10);
 }

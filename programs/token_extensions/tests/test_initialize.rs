@@ -382,14 +382,7 @@ impl TestHelper {
         th
     }
 
-    fn transfer_ct(
-        &mut self,
-        user_src: &User,
-        user_dst: &User,
-        admin: &User,
-        transfer_amount: u64,
-        amount: u64,
-    ) {
+    fn transfer_ct(&mut self, user_src: &User, user_dst: &User, admin: &User, amount: u64) {
         let user_src_ata = &user_src.ata.pubkey();
         let user_to_ata = &user_dst.ata.pubkey();
         let aes = &user_src.aes;
@@ -508,5 +501,5 @@ fn test_initialize() {
 
     mint.enable_ct(&user_b, &admin);
 
-    mint.transfer_ct(&user_a, &user_b, &admin, 10, 10);
+    mint.transfer_ct(&user_a, &user_b, &admin, 10);
 }

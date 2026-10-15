@@ -80,59 +80,6 @@ struct Mint<'info> {
     decimals: u8,
 }
 
-// impl<'info> Mint<'info> {
-//     fn mint_tokens(self, user_ata: &Pubkey, mint_amount: u64, admin: &Keypair) {
-//         self.helper.send(
-//             &[mint_to(
-//                 &TOKEN_PROGRAM_ID,
-//                 &self.key.pubkey(),
-//                 &user_ata,
-//                 &admin.pubkey(),
-//                 &[&admin.pubkey()],
-//                 mint_amount,
-//             )
-//             .unwrap()],
-//             &[&admin],
-//         );
-//     }
-//     fn transfer(self, user: User, from_ata: Keypair, to_ata: Pubkey, transfer_amount: u64) {
-//         let raw = self.helper.svm.get_account(&self.key.pubkey()).unwrap();
-//         let data = raw.data;
-//         let epoch = self.helper.svm.get_sysvar::<Clock>().epoch;
-//         let state = AStateWithExtensions::<MintState>::unpack(&data).unwrap();
-
-//         let fee = match state.get_extension::<TransferFeeConfig>() {
-//             Ok(config) => config.calculate_epoch_fee(epoch, transfer_amount).unwrap(),
-//             Err(_) => 0,
-//         };
-//         let transfer_ix = transfer_checked_with_fee(
-//             &TOKEN_PROGRAM_ID,
-//             &from_ata.pubkey(),
-//             &self.key.pubkey(),
-//             &to_ata,
-//             &self.helper.admin.pubkey(),
-//             &[&user.key.pubkey()],
-//             transfer_amount,
-//             self.decimals,
-//             fee,
-//         )
-//         .unwrap();
-//         self.helper.send(&[transfer_ix], &[&from_ata]);
-//     }
-//     fn setup_ata(self, user: User, ata: Keypair) {
-//         self.helper.send(
-//             &[initialize_account3(
-//                 &TOKEN_PROGRAM_ID,
-//                 &ata.pubkey(),
-//                 &self.key.pubkey(),
-//                 &user.key.pubkey(),
-//             )
-//             .unwrap()],
-//             &[],
-//         );
-//     }
-// }
-
 impl<'info> User<'info> {
     fn ata(self, mint: Pubkey) -> Pubkey {
         let space = ExtensionType::try_calculate_account_len::<TokenAccount>(&[

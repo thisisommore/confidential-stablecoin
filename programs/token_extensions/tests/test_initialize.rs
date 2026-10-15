@@ -226,16 +226,26 @@ impl TestHelper {
             .get_extension::<ConfidentialTransferAccount>()
             .unwrap();
 
+        let decryptable: AeCiphertext = ct.decryptable_available_balance.try_into().unwrap();
+        let available = decryptable.decrypt(aes).unwrap();
+
         // pending is split lo(16-bit)/hi(32-bit) for cheap discrete-log decrypt
         let lo: ElGamalCiphertext = ct.pending_balance_lo.try_into().unwrap();
         let hi: ElGamalCiphertext = ct.pending_balance_hi.try_into().unwrap();
-        let avail: ElGamalCiphertext = ct.available_balance.try_into().unwrap();
-        let total = el.secret().decrypt_u32(&avail).unwrap()
-            + el.secret().decrypt_u32(&lo).unwrap()
-            + (el.secret().decrypt_u32(&hi).unwrap() << 16);
+
+        let lo_val: i64 = match el.secret().decrypt_u32(&lo) {
+            Some(v) => v as i64,
+            None => {
+                let neg = &ElGamalCiphertext::default() - &lo;
+                -(el.secret().decrypt_u32(&neg).unwrap() as i64)
+            }
+        };
+
+        let hi_val = el.secret().decrypt_u32(&hi).unwrap() as i64;
+        let pending = ((hi_val << 16) + lo_val) as u64;
 
         let counter: u64 = ct.pending_balance_credit_counter.into();
-        let new_decryptable = aes.encrypt(total); // AeCiphertext
+        let new_decryptable = aes.encrypt(available + pending); // AeCiphertext
         self.send(
             &[apply_pending_balance(
                 &TOKEN_PROGRAM_ID,
@@ -549,5 +559,5 @@ fn test_initialize() {
 
     mint.transfer_ct(&user_a, &user_b, &admin, mint.units(9));
     mint.apply(&user_b);
-    // mint.withdraw(&user_b, mint.units(9));
+    mint.withdraw(&user_b, mint.units(8));
 }

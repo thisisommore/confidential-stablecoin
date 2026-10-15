@@ -24,6 +24,7 @@ use {
                 initialize_account3, initialize_mint2, initialize_mint_close_authority,
                 initialize_permanent_delegate, mint_to, thaw_account,
             },
+            solana_zk_sdk::encryption::pod::auth_encryption::PodAeCiphertext,
             state::{Account as TokenAccount, AccountState, Mint as MintState},
         },
         ID as TOKEN_PROGRAM_ID,
@@ -48,7 +49,7 @@ use {
             confidential_transfer::{
                 instruction::{
                     apply_pending_balance, approve_account, configure_account, deposit,
-                    transfer_with_fee,
+                    transfer_with_fee, withdraw,
                 },
                 ConfidentialTransferAccount,
             },
@@ -57,7 +58,9 @@ use {
         state::Account as TokenAccountState,
     },
     spl_token_confidential_transfer_proof_extraction::instruction::ProofLocation,
-    spl_token_confidential_transfer_proof_generation::transfer_with_fee::transfer_with_fee_split_proof_data,
+    spl_token_confidential_transfer_proof_generation::{
+        transfer_with_fee::transfer_with_fee_split_proof_data, withdraw::withdraw_proof_data,
+    },
     std::{
         fmt::Debug,
         num::{NonZero, NonZeroI8},
@@ -263,6 +266,45 @@ impl TestHelper {
         );
     }
 
+    fn withdraw(&mut self, user: &User, amount: u64) {
+        let raw_acount = self.svm.get_account(&user.ata.pubkey()).unwrap();
+        let st = StateWithExtensions::<TokenAccountState>::unpack(&raw_acount.data).unwrap();
+        let ct = st.get_extension::<ConfidentialTransferAccount>().unwrap();
+        let available_balance: ElGamalCiphertext = ct.available_balance.try_into().unwrap();
+        let decryptable_balance: AeCiphertext =
+            ct.decryptable_available_balance.try_into().unwrap();
+
+        let balance = decryptable_balance.decrypt(&user.aes).unwrap();
+
+        let proofs =
+            withdraw_proof_data(&available_balance, balance, amount, &user.elgamal).unwrap();
+        let new_decryptable = user.aes.encrypt(balance - amount).into();
+
+        let user_ata = &user.ata.pubkey();
+        self.send(
+            &withdraw(
+                &TOKEN_PROGRAM_ID,
+                user_ata,
+                &self.mint.pubkey(),
+                amount,
+                9,
+                &new_decryptable,
+                &user.pubkey(),
+                &[],
+                ProofLocation::InstructionOffset(
+                    NonZeroI8::new(1).unwrap(),
+                    &proofs.equality_proof_data,
+                ),
+                ProofLocation::InstructionOffset(
+                    NonZeroI8::new(2).unwrap(),
+                    &proofs.range_proof_data,
+                ),
+            )
+            .unwrap(),
+            &[&user.key],
+        );
+    }
+
     fn mint_tokens(&mut self, user: &User, admin: &User, mint_amount: u64) {
         let user_ata = &user.ata.pubkey();
         self.send(
@@ -310,6 +352,10 @@ impl TestHelper {
             &[&a],
         );
         a
+    }
+
+    fn units(&self, amount: u64) -> u64 {
+        amount * 10u64.pow(9)
     }
 
     fn new_account_from_key(&mut self, space: usize, owner: &Pubkey, keypair: &Keypair) {
@@ -491,15 +537,17 @@ fn test_initialize() {
     mint.ata(&user_a);
     mint.ata(&user_b);
     mint.thaw(&user_a, &admin);
-    mint.mint_tokens(&user_a, &admin, 10_00_000);
+    mint.mint_tokens(&user_a, &admin, mint.units(200));
     mint.thaw(&user_b, &admin);
 
-    mint.transfer(&user_a, &user_b, &admin, 1000);
+    mint.transfer(&user_a, &user_b, &admin, mint.units(10));
     mint.enable_ct(&user_a, &admin);
-    mint.deposit(&user_a, 10_000);
+    mint.deposit(&user_a, mint.units(10));
     mint.apply(&user_a);
 
     mint.enable_ct(&user_b, &admin);
 
-    mint.transfer_ct(&user_a, &user_b, &admin, 10);
+    mint.transfer_ct(&user_a, &user_b, &admin, mint.units(9));
+    mint.apply(&user_b);
+    // mint.withdraw(&user_b, mint.units(9));
 }
